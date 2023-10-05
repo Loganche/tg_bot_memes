@@ -1,0 +1,7 @@
+[flake8]
+extend-ignore = E203, E211, E999, F401, F821, W503
+exclude = .git, .env, .tox, .mypy_cache, .hg, __pycache__, docs/source/conf.py, old, build, dist, tmp, _build, buck-out
+max-complexity = 10
+max-line-length = 100
+
+inline-quotes = '

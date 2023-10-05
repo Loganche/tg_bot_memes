@@ -1,0 +1,28 @@
+[tool.black]
+line-length = 100
+target-version = ['py310']
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.env
+  | _build
+  | buck-out
+  | build
+  | old
+  | dist
+  | tmp
+  | __pycache__
+)/
+'''
+[tool.isort]
+profile = 'black'
+import_heading_stdlib = 'stdlib modules'
+import_heading_firstparty = 'local modules'
+length_sort = true
+multi_line_output = 3
+py_version = 310
+skip = ['.gitignore']
