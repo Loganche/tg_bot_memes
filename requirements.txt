@@ -18,6 +18,7 @@ pyaes==1.6.1
 pyasn1==0.5.0
 pycodestyle==2.11.0
 pyflakes==3.1.0
+python-dotenv==1.0.0
 PyYAML==6.0.1
 rsa==4.9
 Telethon==1.30.3

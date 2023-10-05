@@ -1,10 +1,10 @@
 # --- env activation ---
 #
-# source .env/bin/activate
+# source .venv/bin/activate
 # deactivate
 
 prepare_env:
-	python3.10 -m venv .env
+	python3.10 -m venv .venv
 
 prepare_pip:
 	python3 -m pip install --upgrade pip
