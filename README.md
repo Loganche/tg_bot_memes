@@ -4,8 +4,8 @@ How to start
 ```
 make prepare_env
 source .venv/bin/activate
-prepare_pip
-prepare_precommit
+make prepare_pip
+make prepare_precommit
 ```
 
 How to finish
