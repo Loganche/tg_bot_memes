@@ -11,4 +11,5 @@ make prepare_precommit
 How to finish
 ```
 deactivate
+rm -r *.session
 ```
