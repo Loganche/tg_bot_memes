@@ -48,7 +48,6 @@ queuelib==1.6.2
 requests==2.31.0
 requests-file==2.0.0
 rsa==4.9
-Scrapy==2.11.1
 service-identity==24.1.0
 six==1.16.0
 Telethon==1.30.3
