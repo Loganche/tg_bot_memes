@@ -20,7 +20,6 @@ client = TGClient(
     api_hash=config['API_HASH'],
     channels_file='channels.json',
     db=db,
-    tg_bot_token=config['BOT_TOKEN'],
 )
 killer = GracefulKiller()
 scheduler = AsyncIOScheduler()

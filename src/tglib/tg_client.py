@@ -13,6 +13,7 @@ class TGClientError(Exception):
 
 class TGClient(TelegramClient):
     INITIAL_MSG_OFFSET = 5
+    MESSAGE_SCHEDULE = 5
     TG_BOT_NAME = 'MBerushiBot'
     TG_ADMIN_NAME = 'loganche'
 
@@ -83,11 +84,16 @@ class TGClient(TelegramClient):
             if message.media:
                 if channel['forward']:
                     await self.forward_messages(
-                        self.TG_BOT_NAME, message, tg_channel, schedule=datetime.timedelta(0, 5)
+                        self.TG_BOT_NAME,
+                        message,
+                        tg_channel,
+                        schedule=datetime.timedelta(0, self.MESSAGE_SCHEDULE),
                     )
                 else:
                     await self.send_message(
-                        self.TG_BOT_NAME, message, schedule=datetime.timedelta(0, 5)
+                        self.TG_BOT_NAME,
+                        message,
+                        schedule=datetime.timedelta(0, self.MESSAGE_SCHEDULE),
                     )
             else:
                 logging.info(f'Message {message.id} from channel {channel["name"]} has no media')
