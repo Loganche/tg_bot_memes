@@ -13,6 +13,11 @@ class Sqlite3:
         self.check_tables()
 
     def check_tables(self):
+        self.cursor.execute(
+            '''CREATE TABLE IF NOT EXISTS channels
+                            (channel_id INTEGER PRIMARY KEY, message_id INTEGER NOT NULL)'''
+        )
+        self.connection.commit()
         res = self.cursor.execute('SELECT name FROM sqlite_master')
         logging.info(f'Got tables: {res.fetchall()}')
 

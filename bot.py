@@ -4,8 +4,6 @@ import logging
 from asyncio import sleep
 from datetime import datetime, timedelta
 
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-
 # local modules
 from src.db.db import Sqlite3
 from src.preloader import load_env
@@ -22,7 +20,6 @@ client = TGClient(
     db=db,
 )
 killer = GracefulKiller()
-scheduler = AsyncIOScheduler()
 
 
 async def main():
@@ -47,13 +44,3 @@ async def main():
 
 with client:
     client.loop.run_until_complete(main())
-
-
-# comment everytinhg below and uncomment previous code to run in while loop instead AsyncScheduler
-# scheduler.add_job(main)
-# scheduler.add_job(client.crawl_channels, 'interval', seconds=10)
-# scheduler.start()
-# with client:
-#     client.loop.run_forever()
-# db.connection.close()
-# logging.info('Stopping...')

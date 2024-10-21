@@ -14,7 +14,7 @@ class TGClientError(Exception):
 class TGClient(TelegramClient):
     INITIAL_MSG_OFFSET = 5
     MESSAGE_SCHEDULE = 5
-    TG_BOT_NAME = 'MBerushiBot'
+    TG_BOT_NAME = 'MBerushiBot'  # receiver
     TG_ADMIN_NAME = 'loganche'
 
     def __init__(
