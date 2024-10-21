@@ -30,6 +30,11 @@ class Sqlite3:
         self.connection.commit()
         return res
 
+    def get_all_admins(self):
+        res = self.cursor.execute('SELECT user_id, message_id FROM admins')
+        self.connection.commit()
+        return res
+
     def get_channel_offset(self, channel_id):
         res = self.cursor.execute(
             'SELECT message_id FROM channels WHERE channel_id=?', [channel_id]

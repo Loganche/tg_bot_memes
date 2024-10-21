@@ -13,7 +13,7 @@ class TGClientError(Exception):
 
 
 class TGClient(TelegramClient):
-    INITIAL_MSG_OFFSET = 5
+    INITIAL_MSG_OFFSET = 1
     MESSAGE_SCHEDULE = 5
     TG_BOT_NAME = 'bapbab'
     TG_ADMIN_NAME = 'loganche'
@@ -26,6 +26,7 @@ class TGClient(TelegramClient):
         api_id: int,
         api_hash: str,
         channels_file: str,
+        admins_file: str,
         db,
         tg_bot_token: str | None = None,
     ):
@@ -36,7 +37,8 @@ class TGClient(TelegramClient):
             super().start(bot_token=tg_bot_token)
             self.check_connection()
         self.db = db
-        self.import_channels_file(channels_file)
+        self.channels = self.import_config_file(channels_file)
+        self.admins = self.import_config_file(admins_file)
 
     def check_connection(self):
         if super().is_connected():
@@ -45,9 +47,10 @@ class TGClient(TelegramClient):
             logging.error('Connection is lost')
             raise TGClientError
 
-    def import_channels_file(self, channels_file):
-        with open(channels_file, 'r', encoding='utf8') as json_file:
-            self.channels = json.load(json_file)
+    def import_config_file(self, config_file):
+        with open(config_file, 'r', encoding='utf8') as json_file:
+            data = json.load(json_file)
+        return data
 
     async def add_new_channels_db(self):
         to_add = []
@@ -63,6 +66,21 @@ class TGClient(TelegramClient):
             self.db.insert_new_channels(
                 list(zip(to_add, [0] * len(to_add)))
             )  # converting to list of tuples (channel_id, 0)
+
+    async def add_new_admins_db(self):
+        to_add = []
+        res = self.db.get_all_admins()
+        admins_db = dict(res.fetchall())
+
+        for admin in self.admins:
+            admin_entity = await self.get_input_entity(admin['name'])
+            if admins_db.get(admin_entity.user_id) is None:
+                to_add.append(admin_entity.user_id)
+
+        if to_add:
+            self.db.insert_new_admins(
+                list(zip(to_add, [0] * len(to_add)))
+            )  # converting to list of tuples (user_id, 0)
 
     async def crawl_channels(self):
         for channel in self.channels:
@@ -87,7 +105,6 @@ class TGClient(TelegramClient):
                 await self.send_message(
                     entity=self.TG_ADMIN_NAME,
                     message=message,
-                    schedule=datetime.timedelta(0, self.MESSAGE_SCHEDULE),
                 )
             else:
                 logging.info(f'Message {message.id} from channel {channel["name"]} has no media')
@@ -98,6 +115,10 @@ class TGClient(TelegramClient):
 
         self.db.update_channel_offset(tg_channel.channel_id, max_msg_id)
 
+    async def crawl_admins(self):
+        for admin in self.admins:
+            await self.crawl_admin_reactions(admin)
+
     async def crawl_admin_reactions(self, admin):
         """
         Get admin chat and offset
@@ -105,28 +126,32 @@ class TGClient(TelegramClient):
         Iterate over messages and send them to channel (if reactions good)
         Find max message and update offset
         """
-        admin_entity = await self.get_input_entity(channel['name'])
-        message_id = self.db.get_admin_offset(admin_entity.id)
+        admin_entity = await self.get_input_entity(admin['name'])
+        message_id = self.db.get_admin_offset(admin_entity.user_id)
 
         messages = self.get_messages_from_offset(admin_entity, message_id)
 
         max_msg_id = message_id
         async for message in messages:
             if message.reactions:
-                max_msg_id = max(max_msg_id, message.id)
                 reactions = {x.reaction.emoticon: x.count for x in message.reactions.results}
                 if reactions.get('👍', 0) == self.REACTIONS_APPROVED_AMOUNT:
                     await self.send_message(
                         entity=self.TG_CHANNEL_NAME,
                         message=message,
-                        schedule=datetime.timedelta(0, self.MESSAGE_SCHEDULE),
+                        schedule=datetime.timedelta(days=0, seconds=self.MESSAGE_SCHEDULE),
                     )
+                max_msg_id = (
+                    max(max_msg_id, message.id)
+                    if reactions.get('👍') is not None or reactions.get('👎') is not None
+                    else max_msg_id
+                )
 
         if max_msg_id == message_id:
-            logging.info(f'No new reactions from admin {admin_entity.id}')
+            logging.info(f'No new reactions from admin {admin_entity.user_id}')
             return
 
-        self.db.update_admin_offset(admin_entity.id, max_msg_id)
+        self.db.update_admin_offset(admin_entity.user_id, max_msg_id)
         return
 
     def get_messages_from_offset(self, entity, offset_message_id):

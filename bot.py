@@ -17,6 +17,7 @@ client = TGClient(
     api_id=config['API_ID'],
     api_hash=config['API_HASH'],
     channels_file='channels.json',
+    admins_file='admins.json',
     db=db,
 )
 killer = GracefulKiller()
@@ -30,12 +31,12 @@ async def main():
         db.connection.close()
         exit(-1)
     await client.add_new_channels_db()
+    await client.add_new_admins_db()
 
     while not killer.kill_now:
-        logging.info(
-            f'Running crawl_channels(), next run at {datetime.now()+timedelta(seconds=10)}'
-        )
+        logging.info(f'Crawling, next run at {datetime.now()+timedelta(seconds=10)}')
         await client.crawl_channels()
+        await client.crawl_admins()
         await sleep(10)
 
     db.connection.close()
