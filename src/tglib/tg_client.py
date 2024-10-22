@@ -13,20 +13,18 @@ class TGClientError(Exception):
 
 
 class TGClient(TelegramClient):
-    INITIAL_MSG_OFFSET = 1
-    MESSAGE_SCHEDULE = 5
-    TG_BOT_NAME = 'bapbab'
-    TG_ADMIN_NAME = 'loganche'
-    TG_CHANNEL_NAME = 'tstbapbab'
+    INITIAL_MESSAGE_OFFSET = 5
+    MESSAGE_SCHEDULE_SECONDS = 5
     REACTIONS_APPROVED_AMOUNT = 1
+    ALLOW_FORCE_POSTING = False
+    TG_CHANNEL_NAME = ''
 
     def __init__(
         self,
         session: str,
         api_id: int,
         api_hash: str,
-        channels_file: str,
-        admins_file: str,
+        config: dict,
         db,
         tg_bot_token: str | None = None,
     ):
@@ -37,8 +35,13 @@ class TGClient(TelegramClient):
             super().start(bot_token=tg_bot_token)
             self.check_connection()
         self.db = db
-        self.channels = self.import_config_file(channels_file)
-        self.admins = self.import_config_file(admins_file)
+        self.channels = config['channels']
+        self.admins = config['admins']
+        self.INITIAL_MESSAGE_OFFSET = config['initial_offset']
+        self.MESSAGE_SCHEDULE_SECONDS = config['schedule_seconds']
+        self.REACTIONS_APPROVED_AMOUNT = config['reactions_approved_amount']
+        self.TG_CHANNEL_NAME = config['channel_name']
+        self.ALLOW_FORCE_POSTING = config['allow_force_posting']
 
     def check_connection(self):
         if super().is_connected():
@@ -46,11 +49,6 @@ class TGClient(TelegramClient):
         else:
             logging.error('Connection is lost')
             raise TGClientError
-
-    def import_config_file(self, config_file):
-        with open(config_file, 'r', encoding='utf8') as json_file:
-            data = json.load(json_file)
-        return data
 
     async def add_new_channels_db(self):
         to_add = []
@@ -102,10 +100,36 @@ class TGClient(TelegramClient):
         async for message in messages:
             max_msg_id = max(max_msg_id, message.id)
             if message.media:
-                await self.send_message(
-                    entity=self.TG_ADMIN_NAME,
-                    message=message,
-                )
+                # decide to send to admin or to channel
+                if self.ALLOW_FORCE_POSTING:
+                    if channel['forward']:
+                        await self.forward_messages(
+                            entity=self.TG_CHANNEL_NAME,
+                            messages=message,
+                            schedule=datetime.timedelta(
+                                days=0, seconds=self.MESSAGE_SCHEDULE_SECONDS
+                            ),
+                        )
+                    else:
+                        await self.send_message(
+                            entity=self.TG_CHANNEL_NAME,
+                            message=message,
+                            schedule=datetime.timedelta(
+                                days=0, seconds=self.MESSAGE_SCHEDULE_SECONDS
+                            ),
+                        )
+                else:
+                    for admin in self.admins:
+                        if channel['forward']:
+                            await self.forward_messages(
+                                entity=admin['name'],
+                                messages=message,
+                            )
+                        else:
+                            await self.send_message(
+                                entity=admin['name'],
+                                message=message,
+                            )
             else:
                 logging.info(f'Message {message.id} from channel {channel["name"]} has no media')
 
@@ -139,7 +163,7 @@ class TGClient(TelegramClient):
                     await self.send_message(
                         entity=self.TG_CHANNEL_NAME,
                         message=message,
-                        schedule=datetime.timedelta(days=0, seconds=self.MESSAGE_SCHEDULE),
+                        schedule=datetime.timedelta(days=0, seconds=self.MESSAGE_SCHEDULE_SECONDS),
                     )
                 max_msg_id = (
                     max(max_msg_id, message.id)
@@ -161,7 +185,7 @@ class TGClient(TelegramClient):
             return
         elif offset_message_id == 0:
             # crawling only last messages - OFFSET for new channels with 0 offset
-            kwargs['limit'] = self.INITIAL_MSG_OFFSET
+            kwargs['limit'] = self.INITIAL_MESSAGE_OFFSET
         else:
             kwargs['min_id'] = offset_message_id
         return self.iter_messages(**kwargs)

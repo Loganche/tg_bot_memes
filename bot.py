@@ -2,22 +2,50 @@
 # stdlib modules
 import logging
 from asyncio import sleep
+from argparse import ArgumentParser
 from datetime import datetime, timedelta
 
 # local modules
 from src.db.db import Sqlite3
-from src.preloader import load_env
+from src.preloader import load_env, load_config
 from src.tglib.tg_client import TGClient, TGClientError
 from src.appkiller.killer import GracefulKiller
 
-config = load_env()
-db = Sqlite3('data.db')
+parser = ArgumentParser(description='Telegram bot for parsing and posting messages.')
+parser.add_argument(
+    '--env-file',
+    action='store',
+    type=str,
+    default='.env',
+    help='path to environment file (default .env)',
+)
+parser.add_argument(
+    '--db-file',
+    action='store',
+    type=str,
+    default='data.db',
+    help='path to sqlite3 .db file (default data.db)',
+)
+parser.add_argument(
+    '--config-file',
+    action='store',
+    type=str,
+    default='config.json',
+    help='path to config file (default config.json)',
+)
+
+args = parser.parse_args()
+args = vars(args)
+logging.info(args)
+
+env = load_env(args['env_file'])
+config = load_config(args['config_file'])
+db = Sqlite3(args['db_file'])
 client = TGClient(
     session='anon',
-    api_id=config['API_ID'],
-    api_hash=config['API_HASH'],
-    channels_file='channels.json',
-    admins_file='admins.json',
+    api_id=env['API_ID'],
+    api_hash=env['API_HASH'],
+    config=config,
     db=db,
 )
 killer = GracefulKiller()

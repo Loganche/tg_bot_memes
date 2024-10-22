@@ -1,0 +1,18 @@
+{
+    "channel_name": "tstbapbab",
+    "initial_offset": 1,
+    "schedule_seconds": 10,
+    "reactions_approved_amount": 1,
+    "allow_force_posting": false,
+    "channels": [
+        {
+            "name": "tstbapbab",
+            "forward": true
+        }
+    ],
+    "admins": [
+        {
+            "name": "loganche"
+        }
+    ]
+}
