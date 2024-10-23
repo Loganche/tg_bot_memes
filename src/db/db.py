@@ -25,20 +25,13 @@ class Sqlite3:
         res = self.cursor.execute('SELECT name FROM sqlite_master')
         logging.info(f'Got tables: {res.fetchall()}')
 
-    def get_all_channels(self):
-        res = self.cursor.execute('SELECT channel_id, message_id FROM channels')
+    def get_all(self, columns, table):
+        res = self.cursor.execute(f'SELECT {", ".join(i for i in columns)} FROM {table}')
         self.connection.commit()
         return res
 
-    def get_all_admins(self):
-        res = self.cursor.execute('SELECT user_id, message_id FROM admins')
-        self.connection.commit()
-        return res
-
-    def get_channel_offset(self, channel_id):
-        res = self.cursor.execute(
-            'SELECT message_id FROM channels WHERE channel_id=?', [channel_id]
-        )
+    def get_offset(self, table, where, arg):
+        res = self.cursor.execute(f'SELECT message_id FROM {table} WHERE {where}=?', [arg])
         self.connection.commit()
         try:
             message_id = res.fetchone()[0]
@@ -46,33 +39,14 @@ class Sqlite3:
             message_id = -1
         return message_id
 
-    def get_admin_offset(self, user_id):
-        res = self.cursor.execute('SELECT message_id FROM admins WHERE user_id=?', [user_id])
-        self.connection.commit()
-        try:
-            message_id = res.fetchone()[0]
-        except Exception:
-            message_id = -1
-        return message_id
-
-    def insert_new_channels(self, values):
-        logging.info(f'Adding {len(values)} new channels from file')
-        self.cursor.executemany('INSERT INTO channels VALUES (?, ?)', values)
+    def insert_new(self, table, values):
+        logging.info(f'Adding {len(values)} new {table} from file')
+        self.cursor.executemany(f'INSERT INTO {table} VALUES (?, ?)', values)
         self.connection.commit()
 
-    def insert_new_admins(self, values):
-        logging.info(f'Adding {len(values)} new admins from file')
-        self.cursor.executemany('INSERT INTO admins VALUES (?, ?)', values)
-        self.connection.commit()
-
-    def update_channel_offset(self, channel_id, message_id):
-        logging.info(f'Updating channel {channel_id} offset with message {message_id}')
+    def update_offset(self, table, where, where_id, message_id):
+        logging.info(f'Updating {table} {where_id} offset with message {message_id}')
         self.cursor.execute(
-            'UPDATE channels SET message_id=? WHERE channel_id=?', [message_id, channel_id]
+            f'UPDATE {table} SET message_id=? WHERE {where}=?', [message_id, where_id]
         )
-        self.connection.commit()
-
-    def update_admin_offset(self, user_id, message_id):
-        logging.info(f'Updating admin {user_id} offset with message {message_id}')
-        self.cursor.execute('UPDATE admins SET message_id=? WHERE user_id=?', [message_id, user_id])
         self.connection.commit()
