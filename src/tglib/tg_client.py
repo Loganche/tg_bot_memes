@@ -7,6 +7,9 @@ from asyncio import sleep
 
 from telethon import TelegramClient
 
+# local modules
+from src.db.db import Sqlite3
+
 
 class TGClientError(Exception):
     pass
@@ -25,7 +28,7 @@ class TGClient(TelegramClient):
         api_id: int,
         api_hash: str,
         config: dict,
-        db,
+        db: Sqlite3,
         tg_bot_token: str | None = None,
     ):
         if not tg_bot_token:
@@ -52,7 +55,7 @@ class TGClient(TelegramClient):
 
     async def add_new_channels_db(self):
         to_add = []
-        res = self.db.get_all_channels()
+        res = self.db.get_all(columns=['channel_id', 'message_id'], table='channels')
         channels_db = dict(res.fetchall())
 
         for channel in self.channels:
@@ -61,13 +64,13 @@ class TGClient(TelegramClient):
                 to_add.append(tg_channel.channel_id)
 
         if to_add:
-            self.db.insert_new_channels(
-                list(zip(to_add, [0] * len(to_add)))
+            self.db.insert_new(
+                table='channels', values=list(zip(to_add, [0] * len(to_add)))
             )  # converting to list of tuples (channel_id, 0)
 
     async def add_new_admins_db(self):
         to_add = []
-        res = self.db.get_all_admins()
+        res = self.db.get_all(columns=['user_id', 'message_id'], table='admins')
         admins_db = dict(res.fetchall())
 
         for admin in self.admins:
@@ -76,8 +79,8 @@ class TGClient(TelegramClient):
                 to_add.append(admin_entity.user_id)
 
         if to_add:
-            self.db.insert_new_admins(
-                list(zip(to_add, [0] * len(to_add)))
+            self.db.insert_new(
+                table='admins', values=list(zip(to_add, [0] * len(to_add)))
             )  # converting to list of tuples (user_id, 0)
 
     async def crawl_channels(self):
@@ -92,7 +95,9 @@ class TGClient(TelegramClient):
         Find max message and update offset
         """
         tg_channel = await self.get_input_entity(channel['name'])
-        message_id = self.db.get_channel_offset(tg_channel.channel_id)
+        message_id = self.db.get_offset(
+            table='channels', where='channel_id', arg=tg_channel.channel_id
+        )
 
         messages = self.get_messages_from_offset(tg_channel, message_id)
 
@@ -111,6 +116,7 @@ class TGClient(TelegramClient):
                             ),
                         )
                     else:
+                        message.message = 'Отправлено ботом'
                         await self.send_message(
                             entity=self.TG_CHANNEL_NAME,
                             message=message,
@@ -137,7 +143,12 @@ class TGClient(TelegramClient):
             logging.info(f'No new messages for channel {tg_channel.channel_id}')
             return
 
-        self.db.update_channel_offset(tg_channel.channel_id, max_msg_id)
+        self.db.update_offset(
+            table='channels',
+            where='channel_id',
+            where_id=tg_channel.channel_id,
+            message_id=max_msg_id,
+        )
 
     async def crawl_admins(self):
         for admin in self.admins:
@@ -151,7 +162,7 @@ class TGClient(TelegramClient):
         Find max message and update offset
         """
         admin_entity = await self.get_input_entity(admin['name'])
-        message_id = self.db.get_admin_offset(admin_entity.user_id)
+        message_id = self.db.get_offset(table='admins', where='user_id', arg=admin_entity.user_id)
 
         messages = self.get_messages_from_offset(admin_entity, message_id)
 
@@ -175,7 +186,12 @@ class TGClient(TelegramClient):
             logging.info(f'No new reactions from admin {admin_entity.user_id}')
             return
 
-        self.db.update_admin_offset(admin_entity.user_id, max_msg_id)
+        self.db.update_offset(
+            table='admins',
+            where='user_id',
+            where_id=admin_entity.user_id,
+            message_id=max_msg_id,
+        )
         return
 
     def get_messages_from_offset(self, entity, offset_message_id):
