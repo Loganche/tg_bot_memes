@@ -3,7 +3,7 @@
     "initial_offset": 1,
     "schedule_seconds": 10,
     "reactions_approved_amount": 1,
-    "allow_force_posting": true,
+    "allow_force_posting": false,
     "channels": [
         {
             "name": "tstbapbab",
