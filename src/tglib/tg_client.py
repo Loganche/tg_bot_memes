@@ -6,6 +6,7 @@ import datetime
 from asyncio import sleep
 
 from telethon import TelegramClient
+from telethon.tl.types import InputPeerUser, InputPeerChannel
 
 # local modules
 from src.db.db import Sqlite3
@@ -53,146 +54,32 @@ class TGClient(TelegramClient):
             logging.error('Connection is lost')
             raise TGClientError
 
-    async def add_new_channels_db(self):
-        to_add = []
-        res = self.db.get_all(columns=['channel_id', 'message_id'], table='channels')
-        channels_db = dict(res.fetchall())
+    def get_input_entity_id(self, input_entity):
+        if isinstance(input_entity, InputPeerChannel):
+            return input_entity.channel_id
+        elif isinstance(input_entity, InputPeerUser):
+            return input_entity.user_id
+        return 0
 
-        for channel in self.channels:
-            tg_channel = await self.get_input_entity(channel['name'])
-            if channels_db.get(tg_channel.channel_id) is None:
-                to_add.append(tg_channel.channel_id)
+    async def add_new_entities_db(self, columns, table, entities):
+        to_add = []
+        res = self.db.get_all(columns=columns, table=table)
+        db = dict(res.fetchall())
+
+        for entity in entities:
+            input_entity = await self.get_input_entity(entity['name'])
+            input_entity_id = self.get_input_entity_id(input_entity)
+            if db.get(input_entity_id) is None:
+                to_add.append(input_entity_id)
 
         if to_add:
             self.db.insert_new(
-                table='channels', values=list(zip(to_add, [0] * len(to_add)))
+                table=table, values=list(zip(to_add, [0] * len(to_add)))
             )  # converting to list of tuples (channel_id, 0)
 
-    async def add_new_admins_db(self):
-        to_add = []
-        res = self.db.get_all(columns=['user_id', 'message_id'], table='admins')
-        admins_db = dict(res.fetchall())
-
-        for admin in self.admins:
-            admin_entity = await self.get_input_entity(admin['name'])
-            if admins_db.get(admin_entity.user_id) is None:
-                to_add.append(admin_entity.user_id)
-
-        if to_add:
-            self.db.insert_new(
-                table='admins', values=list(zip(to_add, [0] * len(to_add)))
-            )  # converting to list of tuples (user_id, 0)
-
-    async def crawl_channels(self):
-        for channel in self.channels:
-            await self.crawl_channel_messages(channel)
-
-    async def crawl_channel_messages(self, channel):
-        """
-        Get tg channel name and offset
-        Receive all messages from offset to now
-        Iterate over messages and send them to admin
-        Find max message and update offset
-        """
-        tg_channel = await self.get_input_entity(channel['name'])
-        message_id = self.db.get_offset(
-            table='channels', where='channel_id', arg=tg_channel.channel_id
-        )
-
-        messages = self.get_messages_from_offset(tg_channel, message_id)
-
-        max_msg_id = message_id
-        async for message in messages:
-            max_msg_id = max(max_msg_id, message.id)
-            if message.media:
-                # decide to send to admin or to channel
-                if self.ALLOW_FORCE_POSTING:
-                    if channel['forward']:
-                        await self.forward_messages(
-                            entity=self.TG_CHANNEL_NAME,
-                            messages=message,
-                            schedule=datetime.timedelta(
-                                days=0, seconds=self.MESSAGE_SCHEDULE_SECONDS
-                            ),
-                        )
-                    else:
-                        message.message = 'Отправлено ботом'
-                        await self.send_message(
-                            entity=self.TG_CHANNEL_NAME,
-                            message=message,
-                            schedule=datetime.timedelta(
-                                days=0, seconds=self.MESSAGE_SCHEDULE_SECONDS
-                            ),
-                        )
-                else:
-                    for admin in self.admins:
-                        if channel['forward']:
-                            await self.forward_messages(
-                                entity=admin['name'],
-                                messages=message,
-                            )
-                        else:
-                            await self.send_message(
-                                entity=admin['name'],
-                                message=message,
-                            )
-            else:
-                logging.info(f'Message {message.id} from channel {channel["name"]} has no media')
-
-        if max_msg_id == message_id:
-            logging.info(f'No new messages for channel {tg_channel.channel_id}')
-            return
-
-        self.db.update_offset(
-            table='channels',
-            where='channel_id',
-            where_id=tg_channel.channel_id,
-            message_id=max_msg_id,
-        )
-
-    async def crawl_admins(self):
-        for admin in self.admins:
-            await self.crawl_admin_reactions(admin)
-
-    async def crawl_admin_reactions(self, admin):
-        """
-        Get admin chat and offset
-        Receive all messages from offset to now
-        Iterate over messages and send them to channel (if reactions good)
-        Find max message and update offset
-        """
-        admin_entity = await self.get_input_entity(admin['name'])
-        message_id = self.db.get_offset(table='admins', where='user_id', arg=admin_entity.user_id)
-
-        messages = self.get_messages_from_offset(admin_entity, message_id)
-
-        max_msg_id = message_id
-        async for message in messages:
-            if message.reactions:
-                reactions = {x.reaction.emoticon: x.count for x in message.reactions.results}
-                if reactions.get('👍', 0) == self.REACTIONS_APPROVED_AMOUNT:
-                    await self.send_message(
-                        entity=self.TG_CHANNEL_NAME,
-                        message=message,
-                        schedule=datetime.timedelta(days=0, seconds=self.MESSAGE_SCHEDULE_SECONDS),
-                    )
-                max_msg_id = (
-                    max(max_msg_id, message.id)
-                    if reactions.get('👍') is not None or reactions.get('👎') is not None
-                    else max_msg_id
-                )
-
-        if max_msg_id == message_id:
-            logging.info(f'No new reactions from admin {admin_entity.user_id}')
-            return
-
-        self.db.update_offset(
-            table='admins',
-            where='user_id',
-            where_id=admin_entity.user_id,
-            message_id=max_msg_id,
-        )
-        return
+    async def crawl_entities(self, entities, crawl_function):
+        for entity in entities:
+            await crawl_function(entity)
 
     def get_messages_from_offset(self, entity, offset_message_id):
         kwargs = {'entity': entity}
@@ -205,3 +92,81 @@ class TGClient(TelegramClient):
         else:
             kwargs['min_id'] = offset_message_id
         return self.iter_messages(**kwargs)
+
+    async def crawl_entity_messages(self, entity, table, where_id, message_function):
+        """
+        Get tg channel name and offset
+        Receive all messages from offset to now
+        Iterate over messages and send them to admin
+        Find max message and update offset
+        """
+        input_entity = await self.get_input_entity(entity['name'])
+        input_entity_id = self.get_input_entity_id(input_entity)
+        message_id = self.db.get_offset(table=table, where=where_id, arg=input_entity_id)
+
+        messages = self.get_messages_from_offset(input_entity, message_id)
+
+        max_msg_id = message_id
+        async for message in messages:
+            # self.send_channel_message(message, max_msg_id, entity)
+            # self.check_admin_reaction(message, max_msg_id, entity)
+            max_msg_id = await message_function(message, max_msg_id, entity)
+
+        if max_msg_id == message_id:
+            logging.info(f'No new messages for {table} {input_entity_id}')
+            return
+
+        self.db.update_offset(
+            table=table,
+            where=where_id,
+            where_id=input_entity_id,
+            message_id=max_msg_id,
+        )
+
+    async def send_channel_message(self, message, max_msg_id, channel):
+        max_msg_id = max(max_msg_id, message.id)
+        if message.media:
+            # decide to send to admin or to channel
+            if self.ALLOW_FORCE_POSTING:
+                if channel['forward']:
+                    await self.forward_messages(
+                        entity=self.TG_CHANNEL_NAME,
+                        messages=message,
+                        schedule=datetime.timedelta(days=0, seconds=self.MESSAGE_SCHEDULE_SECONDS),
+                    )
+                else:
+                    message.message = 'Отправлено ботом'
+                    await self.send_message(
+                        entity=self.TG_CHANNEL_NAME,
+                        message=message,
+                        schedule=datetime.timedelta(days=0, seconds=self.MESSAGE_SCHEDULE_SECONDS),
+                    )
+            else:
+                for admin in self.admins:
+                    if channel['forward']:
+                        await self.forward_messages(
+                            entity=admin['name'],
+                            messages=message,
+                        )
+                    else:
+                        await self.send_message(
+                            entity=admin['name'],
+                            message=message,
+                        )
+        return max_msg_id
+
+    async def check_admin_reaction(self, message, max_msg_id, entity):
+        if message.reactions:
+            reactions = {x.reaction.emoticon: x.count for x in message.reactions.results}
+            if reactions.get('👍', 0) == self.REACTIONS_APPROVED_AMOUNT:
+                await self.send_message(
+                    entity=self.TG_CHANNEL_NAME,
+                    message=message,
+                    schedule=datetime.timedelta(days=0, seconds=self.MESSAGE_SCHEDULE_SECONDS),
+                )
+            max_msg_id = (
+                max(max_msg_id, message.id)
+                if reactions.get('👍') is not None or reactions.get('👎') is not None
+                else max_msg_id
+            )
+        return max_msg_id
