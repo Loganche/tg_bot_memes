@@ -3,9 +3,10 @@
 import json
 import logging
 import datetime
-from asyncio import sleep
+from asyncio import PriorityQueue
 
 from telethon import TelegramClient
+from telethon.errors import RPCError
 from telethon.tl.types import InputPeerUser, InputPeerChannel
 
 # local modules
@@ -46,13 +47,24 @@ class TGClient(TelegramClient):
         self.REACTIONS_APPROVED_AMOUNT = config['reactions_approved_amount']
         self.TG_CHANNEL_NAME = config['channel_name']
         self.ALLOW_FORCE_POSTING = config['allow_force_posting']
+        self.MAX_NEW_MESSAGES = config['max_new_messages']
+        self.bot_token = tg_bot_token
+        self.start_bot()
+
+    def start_bot(self):
+        if self.bot_token:
+            try:
+                self.start(bot_token=self.bot_token)
+                self.check_connection()
+            except RPCError as e:
+                logging.error(f'Failed to start bot: {e}')
+                raise TGClientError('Bot connection failed.')
 
     def check_connection(self):
-        if super().is_connected():
-            logging.info('Connected successfully')
-        else:
-            logging.error('Connection is lost')
-            raise TGClientError
+        if not self.is_connected():
+            logging.error('Connection lost.')
+            raise TGClientError('Connection failed.')
+        logging.info('Connected successfully.')
 
     def get_input_entity_id(self, input_entity):
         if isinstance(input_entity, InputPeerChannel):
@@ -63,25 +75,29 @@ class TGClient(TelegramClient):
 
     async def add_new_entities_db(self, columns, table, entities):
         to_add = []
-        res = self.db.fetch_all(columns=columns, table=table)
-        db = dict(res)
+        db = dict(self.db.fetch_all(columns=columns, table=table))
 
         for entity in entities:
-            input_entity = await self.get_input_entity(entity['name'])
-            input_entity_id = self.get_input_entity_id(input_entity)
-            if db.get(input_entity_id) is None:
-                to_add.append(input_entity_id)
+            try:
+                input_entity = await self.get_input_entity(entity['name'])
+                entity_id = self.get_input_entity_id(input_entity)
+                if db.get(entity_id) is None:
+                    to_add.append((entity_id, 0))
+            except Exception as e:
+                logging.warning(f"Failed to process entity {entity['name']}: {e}")
 
         if to_add:
-            self.db.bulk_insert(
-                table=table, rows=list(zip(to_add, [0] * len(to_add)))
-            )  # converting to list of tuples (channel_id, 0)
+            self.db.bulk_insert(table=table, rows=to_add)
+            logging.info(f'Added {len(to_add)} new entities to {table}.')
 
-    async def crawl_entities(self, entities, crawl_function):
+    async def crawl_entities(self, entities, process_entity_func):
         for entity in entities:
-            await crawl_function(entity)
+            try:
+                await process_entity_func(entity)
+            except Exception as e:
+                logging.error(f"Error crawling entity {entity['name']}: {e}")
 
-    def get_messages_from_offset(self, entity, offset_message_id):
+    def get_messages_with_offset(self, entity, offset_message_id):
         kwargs = {'entity': entity}
         if offset_message_id == -1:
             logging.error(f'Entity {entity.id} not initialized, skipping...')
@@ -91,9 +107,34 @@ class TGClient(TelegramClient):
             kwargs['limit'] = self.INITIAL_MESSAGE_OFFSET
         else:
             kwargs['min_id'] = offset_message_id
-        return self.iter_messages(**kwargs)
+        try:
+            return self.iter_messages(**kwargs)
+        except RPCError as e:
+            logging.error(f"Failed to fetch messages for {entity['name']}: {e}")
+            return []
 
-    async def crawl_entity_messages(self, entity, table, where_column, message_function):
+    async def get_max_new_messages(self, messages):
+        views_queue = PriorityQueue(maxsize=self.MAX_NEW_MESSAGES)
+
+        async for message in messages:
+            if views_queue.full():
+                min_view_count, tmp_message = await views_queue.get()
+                if min_view_count > message.views:
+                    await views_queue.put((min_view_count, tmp_message))
+                else:
+                    await views_queue.put((message.views, message))
+            else:
+                await views_queue.put((message.views, message))
+
+        new_messages = []
+        while not views_queue.empty():
+            _, message = await views_queue.get()
+            new_messages.append(message)
+        new_messages.sort(key=lambda msg: msg.id)
+
+        return new_messages
+
+    async def crawl_entity_messages(self, entity, table, where_column, process_message):
         """
         Get tg channel name and offset
         Receive all messages from offset to now
@@ -102,29 +143,28 @@ class TGClient(TelegramClient):
         """
         input_entity = await self.get_input_entity(entity['name'])
         input_entity_id = self.get_input_entity_id(input_entity)
-        message_id = self.db.fetch_one(
+        offset_message_id = self.db.fetch_one(
             table=table, column='message_id', conditions=f'{where_column}={input_entity_id}'
         )
 
-        messages = self.get_messages_from_offset(input_entity, message_id)
+        messages = self.get_messages_with_offset(input_entity, offset_message_id)
+        messages = await self.get_max_new_messages(messages)
+        max_message_id = offset_message_id
 
-        max_msg_id = message_id
         async for message in messages:
-            # self.send_channel_message(message, max_msg_id, entity)
-            # self.check_admin_reaction(message, max_msg_id, entity)
-            max_msg_id = await message_function(message, max_msg_id, entity)
+            try:
+                max_message_id = await process_message(message, max_message_id, entity)
+            except Exception as e:
+                logging.error(f'Error processing message {message.id}: {e}')
 
-        if max_msg_id == message_id:
-            logging.info(f'No new messages for {table} {input_entity_id}')
-            return
-
-        self.db.update(
-            table=table,
-            set_column='message_id',
-            set_value=max_msg_id,
-            where_column=where_column,
-            where_value=input_entity_id,
-        )
+        if max_message_id > offset_message_id:
+            self.db.update(
+                table=table,
+                set_column='message_id',
+                set_value=max_message_id,
+                where_column=where_column,
+                where_value=input_entity_id,
+            )
 
     async def send_channel_message(self, message, max_msg_id, channel):
         max_msg_id = max(max_msg_id, message.id)
