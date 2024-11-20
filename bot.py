@@ -57,7 +57,7 @@ async def main():
         client.check_connection()
     except TGClientError:
         logging.error('Got error from TG Client, exiting...')
-        db.connection.close()
+        db._disconnect()
         exit(-1)
     await client.add_new_entities_db(['channel_id', 'message_id'], 'channels', client.channels)
     await client.add_new_entities_db(['user_id', 'message_id'], 'admins', client.admins)
@@ -69,7 +69,7 @@ async def main():
             partial(
                 client.crawl_entity_messages,
                 table='channels',
-                where_id='channel_id',
+                where_column='channel_id',
                 message_function=client.send_channel_message,
             ),
         )
@@ -78,7 +78,7 @@ async def main():
             partial(
                 client.crawl_entity_messages,
                 table='admins',
-                where_id='user_id',
+                where_column='user_id',
                 message_function=client.check_admin_reaction,
             ),
         )

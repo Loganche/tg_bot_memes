@@ -63,8 +63,8 @@ class TGClient(TelegramClient):
 
     async def add_new_entities_db(self, columns, table, entities):
         to_add = []
-        res = self.db.get_all(columns=columns, table=table)
-        db = dict(res.fetchall())
+        res = self.db.fetch_all(columns=columns, table=table)
+        db = dict(res)
 
         for entity in entities:
             input_entity = await self.get_input_entity(entity['name'])
@@ -73,8 +73,8 @@ class TGClient(TelegramClient):
                 to_add.append(input_entity_id)
 
         if to_add:
-            self.db.insert_new(
-                table=table, values=list(zip(to_add, [0] * len(to_add)))
+            self.db.bulk_insert(
+                table=table, rows=list(zip(to_add, [0] * len(to_add)))
             )  # converting to list of tuples (channel_id, 0)
 
     async def crawl_entities(self, entities, crawl_function):
@@ -93,7 +93,7 @@ class TGClient(TelegramClient):
             kwargs['min_id'] = offset_message_id
         return self.iter_messages(**kwargs)
 
-    async def crawl_entity_messages(self, entity, table, where_id, message_function):
+    async def crawl_entity_messages(self, entity, table, where_column, message_function):
         """
         Get tg channel name and offset
         Receive all messages from offset to now
@@ -102,7 +102,9 @@ class TGClient(TelegramClient):
         """
         input_entity = await self.get_input_entity(entity['name'])
         input_entity_id = self.get_input_entity_id(input_entity)
-        message_id = self.db.get_offset(table=table, where=where_id, arg=input_entity_id)
+        message_id = self.db.fetch_one(
+            table=table, column='message_id', conditions=f'{where_column}={input_entity_id}'
+        )
 
         messages = self.get_messages_from_offset(input_entity, message_id)
 
@@ -116,11 +118,12 @@ class TGClient(TelegramClient):
             logging.info(f'No new messages for {table} {input_entity_id}')
             return
 
-        self.db.update_offset(
+        self.db.update(
             table=table,
-            where=where_id,
-            where_id=input_entity_id,
-            message_id=max_msg_id,
+            set_column='message_id',
+            set_value=max_msg_id,
+            where_column=where_column,
+            where_value=input_entity_id,
         )
 
     async def send_channel_message(self, message, max_msg_id, channel):
