@@ -2,6 +2,7 @@
     "channel_name": "tstbapbab",
     "initial_offset": 1,
     "schedule_seconds": 10,
+    "max_new_messages": 10,
     "reactions_approved_amount": 1,
     "allow_force_posting": false,
     "channels": [
